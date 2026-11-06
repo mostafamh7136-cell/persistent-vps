@@ -1,6 +1,6 @@
 # SECRETS.md — Tiered Secret Intake Manifest
 
-This file lists **what** secrets exist and **which tier** needs them. **No values live here — ever.** The repository is public; a leaked secret here is a compromised VPS.
+This file lists **what** secrets exist and **which tier** needs them. **No values live here — ever.** The repository is public; a leaked secret here is a compromised server.
 
 ## Intake protocol (for agents)
 
@@ -13,7 +13,7 @@ This file lists **what** secrets exist and **which tier** needs them. **No value
 
 | Secret | Where it's used | Notes |
 |---|---|---|
-| `TAILSCALE_AUTH_KEY` | `install.sh`, `scripts/bootstrap.sh` — joins / re-joins the tailnet | **Reusable, pre-authorized, tagged, NON-ephemeral, ≤90 days.** Single-use keys break auto-re-join after a recycle. Create in the admin console → Settings → Keys. |
+| `TAILSCALE_AUTH_KEY` | `install.sh`, `scripts/bootstrap.sh` — joins / re-joins the tailnet | **Reusable, pre-authorized, tagged, NON-ephemeral, ≤90 days.** Single-use keys break unattended re-join after a restart or rebuild. Create in the admin console → Settings → Keys. |
 
 ## Tier 2 — optional enhancements (ask only if relevant)
 

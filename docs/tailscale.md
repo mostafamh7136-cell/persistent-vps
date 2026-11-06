@@ -1,15 +1,15 @@
 # docs/tailscale.md — Tailscale Layer Reference
 
-## Key selection for a persistent node (read this first)
+## Key selection for an always-on node (read this first)
 
-The default admin-console key choices are **wrong for this use case**. A persistent node that must re-join unattended after a container recycle (Directive 1: ALWAYS ALIVE) needs:
+The default admin-console key choices are **wrong for this use case**. A node that must re-join unattended after a restart or rebuild (the availability convention in AGENTS.md) needs:
 
 | Property | Required value | Why |
 |---|---|---|
-| Reusable | ✅ Yes | The node must be able to re-join after a recycle; a spent single-use key = dead node |
+| Reusable | ✅ Yes | The node must be able to re-join after a restart or rebuild; a spent single-use key = dead node |
 | Pre-authorized | ✅ Yes | Re-join must not wait for a human to click "approve device" |
 | Tags | ✅ Yes, e.g. `tag:vps` | Stable ACL target, no user binding; lets you scope what the node may reach |
-| Ephemeral | ❌ **No** | Ephemeral nodes are auto-removed — the opposite of persistence |
+| Ephemeral | ❌ **No** | Ephemeral nodes are auto-removed — the opposite of an always-on server |
 | Expiry | ≤ 90 days | Longest supported; calendar a rotation (agent checks `Expiry` and warns) |
 
 Create in the admin console → **Settings → Keys**. The key is `tskey-auth-…` — see the joining vs managing distinction below.
@@ -28,7 +28,7 @@ Confusing them (or passing an API key to `tailscale up`) is the most common setu
 | Condition | Path |
 |---|---|
 | systemd **and** `/dev/net/tun` **and** root | Standard: systemd `tailscaled` + `tailscaled-health` timer |
-| Missing systemd or tun (container sandbox) | **Userspace networking**: `tailscaled --tun=userspace-networking --state="$TAILSCALE_STATE_DIR"`, supervised by a `Restart=always`-equivalent loop, with `tailscale up --authkey=…` after tailscaled is healthy |
+| Missing systemd or tun (container host you operate) | **Userspace networking**: `tailscaled --tun=userspace-networking --state="$TAILSCALE_STATE_DIR"`, supervised by a `Restart=always`-equivalent loop, with `tailscale up --authkey=…` after tailscaled is healthy |
 
 Userspace networking gives outbound connectivity and SSH over the tailnet without any kernel TUN device. Verify with `tailscale status` and `tailscale ping` — not just "the daemon started".
 
@@ -63,10 +63,10 @@ Enabling `--ssh` is **not** the same as "I can `ssh root@100.x.x.x`". Tailscale 
 - From the node: `tailscale status --json | jq -r '.Self.HostName, .Self.TailscaleIPs[0]'`
 - From a second tailnet device: `ssh root@<ip>` (or `ssh <user>@<ip>`), and `tailscale ping <hostname>` to confirm WireGuard-level reachability. Only then may the report say `verified: yes`.
 
-## State persistence across recycles
+## State persistence across restarts & rebuilds
 
 - Keep tailscaled state on persistent storage: `/var/lib/tailscale` (or `TAILSCALE_STATE_DIR` on the persistent volume).
-- Wire `scripts/bootstrap.sh` into the platform's boot mechanism — it re-mounts, restarts tailscaled, re-joins if needed (with the reusable key), and revives supervision. An in-sandbox watchdog cannot resurrect a dead sandbox; the external boot hook is the resurrection signal.
+- Wire `scripts/bootstrap.sh` into the server's boot mechanism — it re-mounts, restarts tailscaled, re-joins if needed (with the reusable key), and revives supervision. A running process cannot restart a machine that is down; the external boot hook is what restores the stack.
 - `systemd/tailscaled-health.service` + `.timer` repair `tailscaled` every 5 minutes; `scripts/keep-alive.sh` additionally pings a peer to keep NAT mappings warm.
 
 ## Daily state snapshots
