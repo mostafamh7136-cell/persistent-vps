@@ -3,15 +3,17 @@
 *.tskey
 *tskey-auth*
 *tskey-api*
-.pinned_id
-LINK.txt
+
+# SSH private keys — never commit
+ssh-client/id_ed25519
+**/id_ed25519
+**/*.pem
+**/authorized_keys
 
 # Local state and runtime
 /state/
 *.log
 *.tmp
-*.pid
-noVNC-*/
 
 # OS / editor
 .DS_Store
