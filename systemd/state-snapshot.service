@@ -1,0 +1,11 @@
+[Unit]
+Description=persistent-vps state snapshot
+Documentation=https://github.com/mostafamh7136-cell/persistent-vps
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Environment for PERSIST_DIR / STATE_GIT_REMOTE can be set via a drop-in:
+# /etc/systemd/system/state-snapshot.service.d/override.conf
+ExecStart=/usr/local/lib/persistent-vps/state-save.sh

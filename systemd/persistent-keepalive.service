@@ -1,0 +1,13 @@
+[Unit]
+Description=persistent-vps keep-alive check
+Documentation=https://github.com/mostafamh7136-cell/persistent-vps
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/persistent-vps/keep-alive.sh
+# Optional: peer to ping so NAT mappings stay warm.
+# Prefer a drop-in override: /etc/systemd/system/persistent-keepalive.service.d/peer.conf
+# [Service]
+# Environment=TAILSCALE_PEER=100.x.y.z

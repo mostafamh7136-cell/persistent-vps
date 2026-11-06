@@ -1,0 +1,14 @@
+# Secrets — never commit
+.env
+*.tskey
+*tskey-auth*
+*tskey-api*
+
+# Local state and runtime
+/state/
+*.log
+*.tmp
+
+# OS / editor
+.DS_Store
+*.swp

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily persistent-vps state snapshot
+
+[Timer]
+OnBootSec=10min
+OnCalendar=*-*-* 04:00:00
+AccuracySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
