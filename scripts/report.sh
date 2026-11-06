@@ -48,15 +48,15 @@ fi
 if pgrep -f "tailscaled" >/dev/null 2>&1; then
   SUP+="tailscaled running"
 fi
-[[ -z "${SUP}" ]] && SUP="none (wire scripts/bootstrap.sh into the platform boot hook)"
+[[ -z "${SUP}" ]] && SUP="none detected (wire scripts/bootstrap.sh into the server's boot mechanism)"
 
-# Survives recycle: state file + reusable key + boot hook presence
+# Survives restarts: state file + reusable key
 STATE_FILE="/var/lib/tailscale/tailscaled.state"
 [[ -f "${STATE_FILE}" ]] || STATE_FILE="${TAILSCALE_STATE_DIR:-/var/lib/tailscale}/tailscaled.state"
-RECYCLE="no"
-if [[ -f "${STATE_FILE}" ]]; then RECYCLE="partial (state persisted; wire bootstrap.sh into the boot hook)"; fi
+RESTART="no"
+if [[ -f "${STATE_FILE}" ]]; then RESTART="partial (state persisted; wire bootstrap.sh into the boot mechanism)"; fi
 if [[ -f "${STATE_FILE}" && -n "${TAILSCALE_AUTH_KEY:-}" ]]; then
-  RECYCLE="yes (state persisted + reusable re-join key available)"
+  RESTART="yes (state persisted + reusable re-join key available)"
 fi
 
 # --- residual risks (honest, always listed) --------------------------------------
@@ -65,8 +65,8 @@ RISKS=()
 [[ "${TSSH}" != "enabled" ]] && RISKS+=("Tailscale SSH not enabled on the node")
 [[ "${TSSH}" == "enabled" ]] && RISKS+=("Tailscale SSH still requires a tailnet ACL 'ssh' rule with action:accept (see docs/tailscale.md)")
 [[ "${OSSSH}" == "no" ]] && RISKS+=("no OpenSSH fallback installed")
-[[ "${RECYCLE}" == "no" ]] && RISKS+=("tailscaled state not on persistent storage — re-join required after recycle")
-RISKS+=("no external resurrection signal: an in-sandbox watchdog cannot restore a dead sandbox — the platform boot hook must run scripts/bootstrap.sh")
+[[ "${RESTART}" == "no" ]] && RISKS+=("tailscaled state not on persistent storage — re-join required after a rebuild")
+RISKS+=("no external boot hook detected — a running process cannot restore a machine that is down; wire scripts/bootstrap.sh into the server's boot mechanism")
 
 # --- report ------------------------------------------------------------------------
 sep >&2
@@ -76,7 +76,7 @@ echo "Connect: ssh root@${SELF_IP:-no-ip-yet}"
 echo "SSH: tailscale-ssh=${TSSH} (needs ACL rule) | openssh-fallback=${OSSSH}"
 echo "Verified: tailscale ping ${PING_TARGET:-none} -> ${PING_OK}"
 echo "Supervision: ${SUP}"
-echo "Survives recycle: ${RECYCLE}"
+echo "Survives restart: ${RESTART}"
 echo "Residual risks:"
 for r in "${RISKS[@]}"; do echo "  - ${r}"; done
 sep >&2

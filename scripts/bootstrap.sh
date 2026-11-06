@@ -1,10 +1,10 @@
 #!/bin/bash
-# persistent-vps — Tailscale-layer boot hook (ALWAYS ALIVE directive)
+# persistent-vps — Tailscale-layer boot hook (AGENTS.md: Availability)
 #
-# Idempotent: safe to run on every boot/recycle. Wire this into whatever
-# restart mechanism the platform provides (container start, systemd unit,
-# cron @reboot, ...). An in-sandbox watchdog cannot resurrect a dead sandbox —
-# an EXTERNAL boot hook calling this script is the resurrection signal.
+# Idempotent: safe to run on every boot. Wire this into the restart mechanism
+# of the infrastructure you operate (systemd unit, cron @reboot, Docker
+# restart policy, cloud-init boot hook). A running process cannot bring back
+# a machine that is down — this external boot hook is what restores the stack.
 #
 # What it does:
 #   systemd path:  restart tailscaled, re-join if state lost, re-enable timers
@@ -39,7 +39,7 @@ if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
   systemctl restart persistent-keepalive.timer state-snapshot.timer 2>/dev/null || true
   log "done (systemd)"
 else
-  # --- userspace path (containers/sandboxes: no systemd, maybe no /dev/net/tun) --
+  # --- userspace path (container hosts without systemd, maybe no /dev/net/tun) --
   log "userspace path: ensuring tailscaled"
   if ! pgrep -f tailscaled >/dev/null; then
     mkdir -p "${STATE_DIR}" /var/run/tailscale

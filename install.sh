@@ -6,13 +6,17 @@
 # the keep-alive + state scripts, enables timers, and prints a MEASURED
 # final report via scripts/report.sh.
 #
+# Intended for servers the user rents and controls (AGENTS.md — deployment
+# target). Do not run in environments whose terms forbid always-on
+# processes or outbound tunnels.
+#
 # Usage:
 #   sudo -E ./install.sh
 #
 # Required (env or .env): TAILSCALE_AUTH_KEY.
-# For a persistent node use a REUSABLE, pre-authorized, tagged, NON-ephemeral
-# key (max 90 days) so the node can re-join by itself after a container
-# recycle. Single-use keys break the ALWAYS ALIVE directive (AGENTS.md).
+# For an always-on node use a REUSABLE, pre-authorized, tagged, NON-ephemeral
+# key (max 90 days) so the node can re-join by itself after a restart or
+# rebuild. Single-use keys break unattended re-join (AGENTS.md).
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,7 +68,7 @@ fi
 if [[ "${HAVE_SYSTEMD}" -eq 1 ]]; then
   # Keep tailscaled state on a persistent path if possible; with systemd the
   # daemon owns /var/lib/tailscale — ensure that volume is persistent so the
-  # node re-authenticates silently after a recycle.
+  # node re-authenticates silently after a restart.
   mkdir -p /var/lib/tailscale
   tailscale up \
     --auth-key="${AUTH_KEY}" \
@@ -72,8 +76,8 @@ if [[ "${HAVE_SYSTEMD}" -eq 1 ]]; then
     --accept-dns=false \
     --ssh
 else
-  # No systemd (container/sandbox): userspace networking with state on disk.
-  # The node re-authenticates silently after a recycle (reusable auth key).
+  # No systemd (container host you operate): userspace networking with state
+  # on disk. The node re-authenticates silently after a restart (reusable key).
   log "no systemd -> userspace-networking tailscaled, state at ${STATE_DIR}"
   mkdir -p "${STATE_DIR}" /var/run/tailscale
   if ! pgrep -f tailscaled >/dev/null; then
@@ -141,9 +145,10 @@ if [[ ! -d "${PERSIST_DIR}" ]]; then
 fi
 
 # --- 8. Boot hook ------------------------------------------------------------------
-# Wire scripts/bootstrap.sh into whatever restart mechanism the platform
-# provides. It re-ensures tailscaled, re-joins with the reusable key if state
-# was lost, and re-enables timers — after every recycle.
+# Wire scripts/bootstrap.sh into the restart mechanism of the infrastructure
+# you operate (systemd unit, cron @reboot, Docker restart policy, cloud-init).
+# It re-ensures tailscaled, re-joins with the reusable key if state was lost,
+# and re-enables timers — after every restart or rebuild.
 
 # --- 9. Verify + report --------------------------------------------------------------
 log "verifying..."
