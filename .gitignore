@@ -3,11 +3,15 @@
 *.tskey
 *tskey-auth*
 *tskey-api*
+.pinned_id
+LINK.txt
 
 # Local state and runtime
 /state/
 *.log
 *.tmp
+*.pid
+noVNC-*/
 
 # OS / editor
 .DS_Store
