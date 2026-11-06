@@ -1,76 +1,88 @@
-# Tailscale keys: auth keys vs API keys
+# docs/tailscale.md — Tailscale Layer Reference
 
-Two different key types do two different jobs. Mixing them up is the #1 mistake.
+## Key selection for a persistent node (read this first)
 
-| | Auth key | API key |
+The default admin-console key choices are **wrong for this use case**. A persistent node that must re-join unattended after a container recycle (Directive 1: ALWAYS ALIVE) needs:
+
+| Property | Required value | Why |
 |---|---|---|
-| Prefix | `tskey-auth-…` | `tskey-api-…` |
-| Purpose | **Register (join) a device** to the tailnet | **Manage the tailnet** via the HTTP API |
-| Used by | `tailscale up --auth-key=…` | `scripts/ts-api.sh`, `curl api.tailscale.com` |
-| Typical ops use | One per node provision (or one reusable for many) | List devices, delete devices, mint auth keys |
-| Created in | Admin console → Settings → Keys, or via API | Admin console → Settings → Keys → API access tokens |
+| Reusable | ✅ Yes | The node must be able to re-join after a recycle; a spent single-use key = dead node |
+| Pre-authorized | ✅ Yes | Re-join must not wait for a human to click "approve device" |
+| Tags | ✅ Yes, e.g. `tag:vps` | Stable ACL target, no user binding; lets you scope what the node may reach |
+| Ephemeral | ❌ **No** | Ephemeral nodes are auto-removed — the opposite of persistence |
+| Expiry | ≤ 90 days | Longest supported; calendar a rotation (agent checks `Expiry` and warns) |
 
-## Joining a node with an auth key
+Create in the admin console → **Settings → Keys**. The key is `tskey-auth-…` — see the joining vs managing distinction below.
 
-```bash
-tailscale up \
-  --auth-key="$TAILSCALE_AUTH_KEY" \
-  --hostname="persistent-vps" \
-  --accept-dns=false \
-  --ssh
+## Joining vs managing
+
+- `tskey-auth-…` — **auth key**: a node's invite. Used by `install.sh` and `scripts/bootstrap.sh` to join/re-join the tailnet.
+- `tskey-api-…` — **API key**: for the Tailscale HTTP API (listing devices, minting keys). Used by `scripts/ts-api.sh`. Never passed to `tailscale up`.
+
+Confusing them (or passing an API key to `tailscale up`) is the most common setup error.
+
+## Environment detection & userspace fallback
+
+`install.sh` probes the environment before choosing a path:
+
+| Condition | Path |
+|---|---|
+| systemd **and** `/dev/net/tun` **and** root | Standard: systemd `tailscaled` + `tailscaled-health` timer |
+| Missing systemd or tun (container sandbox) | **Userspace networking**: `tailscaled --tun=userspace-networking --state="$TAILSCALE_STATE_DIR"`, supervised by a `Restart=always`-equivalent loop, with `tailscale up --authkey=…` after tailscaled is healthy |
+
+Userspace networking gives outbound connectivity and SSH over the tailnet without any kernel TUN device. Verify with `tailscale status` and `tailscale ping` — not just "the daemon started".
+
+## SSH access — the part most setups get wrong
+
+Enabling `--ssh` is **not** the same as "I can `ssh root@100.x.x.x`". Tailscale SSH authorizes via **tailnet ACL `ssh` rules**, not OS passwords or OS-level keys.
+
+1. **Tagged nodes are not covered by `autogroup:self`.** The default rule won't reach a node joined with `tag:vps` — you need an explicit rule.
+2. **Default action is often `check`**, which forces interactive browser re-authentication every few hours — useless for unattended/agent access. Use `action: accept` for a personal tailnet.
+
+### ACL snippet (admin console → Access Controls)
+
+```json
+"ssh": [
+  {
+    "action": "accept",
+    "src":    ["autogroup:member"],
+    "dst":    ["tag:vps"],
+    "users":  ["autogroup:nonroot", "root"]
+  }
+]
 ```
 
-Notes:
+`autogroup:nonroot` includes a sudo-capable user; add `root` for direct root login. For stricter setups, drop `root` and use `sudo` after login.
 
-- **Single-use vs reusable**: prefer single-use keys for one node; reusable keys for fleets/automation.
-- **Pre-authorized** keys skip the device-approval click in the admin console.
-- **Ephemeral** keys auto-remove the node when it goes offline — do *not* use them for a persistent VPS.
-- **Tagged** keys (`tag:vps`) give the node a shared identity, useful for ACLs.
+### Fallback: OpenSSH over the tailnet
 
-## Minting auth keys on demand
+`install.sh` also enables OpenSSH bound to the tailscale interface with key-only auth, as an independent fallback. If the ACL rule above isn't in place, OpenSSH still works: the tailnet is the transport either way.
 
-With an API key set (`TAILSCALE_API_KEY`, `TAILNET_NAME`):
+### Verification (before claiming SSH works)
 
-```bash
-scripts/ts-api.sh new-key 7        # pre-authorized + reusable, expires in 7 days
-```
+- From the node: `tailscale status --json | jq -r '.Self.HostName, .Self.TailscaleIPs[0]'`
+- From a second tailnet device: `ssh root@<ip>` (or `ssh <user>@<ip>`), and `tailscale ping <hostname>` to confirm WireGuard-level reachability. Only then may the report say `verified: yes`.
 
-Raw API equivalent:
+## State persistence across recycles
 
-```bash
-curl -fsS -u "api:$TAILSCALE_API_KEY" -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"capabilities":{"devices":{"create":{"reusable":true,"ephemeral":false,"preAuthorized":true}}},"expirySeconds":604800}' \
-  "https://api.tailscale.com/api/v2/tailnet/$TAILNET_NAME/keys"
-```
+- Keep tailscaled state on persistent storage: `/var/lib/tailscale` (or `TAILSCALE_STATE_DIR` on the persistent volume).
+- Wire `scripts/bootstrap.sh` into the platform's boot mechanism — it re-mounts, restarts tailscaled, re-joins if needed (with the reusable key), and revives supervision. An in-sandbox watchdog cannot resurrect a dead sandbox; the external boot hook is the resurrection signal.
+- `systemd/tailscaled-health.service` + `.timer` repair `tailscaled` every 5 minutes; `scripts/keep-alive.sh` additionally pings a peer to keep NAT mappings warm.
 
-The response contains the one-time `key` value (`tskey-auth-…`) — it is shown **only once**.
+## Daily state snapshots
 
-## Managing devices with the API
+`systemd/state-save.service` + `.timer` commit `PERSIST_DIR` daily to a bare git repo at `/srv/persistent-state.git`, optionally pushed to `STATE_GIT_REMOTE` (must be **private**; encrypt snapshots if they may contain sensitive material — `age` or `restic`). Include `TAILSCALE_STATE_DIR` in what gets backed up so a restored node doesn't even need to re-join.
 
-```bash
-scripts/ts-api.sh devices              # list all nodes in the tailnet
-scripts/ts-api.sh device <id>          # inspect one node
-scripts/ts-api.sh delete-device <id>   # remove a node from the tailnet
-```
+## Troubleshooting
 
-## Keep-alive and the Tailscale connection
+- `failed to authenticate` on join ⇒ key expired/revoked — mint a new one (Settings → Keys), update `.env`, re-run.
+- `tailscale up` succeeds but `tailscale ping` fails ⇒ likely an ACL `dst` missing for `tag:vps` in `acls`, or a network policy block.
+- `dial tcp: missing CAP_NET_ADMIN` / no `/dev/net/tun` ⇒ re-run `install.sh`; it detects this and takes the userspace path.
+- `Permission denied` on SSH ⇒ the ACL `ssh` rule (not the OS) authorized you — re-check the snippet above and confirm the node's tag matches `dst`.
 
-Tailscale connections are on-demand; idle periods are normal and healthy. The
-watchdog in `scripts/keep-alive.sh` is there for the failure cases:
+## References
 
-- `tailscaled` crashed or the backend left the `Running` state → restart the daemon
-- NAT/firewall state dropped → an optional `TAILSCALE_PEER` ping warms the path
-
-Useful diagnostics on the node:
-
-```bash
-tailscale status
-tailscale ping <peer>
-journalctl -u tailscaled -n 50
-```
-
-## Reference
-
-- <https://tailscale.com/kb/1085/auth-keys>
-- <https://tailscale.com/api>
+- <https://tailscale.com/kb/1117/custom-qa> (userspace networking)
+- <https://tailscale.com/kb/1193/tailscale-ssh> (SSH rules)
+- <https://tailscale.com/kb/1068/acl-tags> (tags)
+- <https://tailscale.com/kb/1085/auth-keys> (auth keys)
